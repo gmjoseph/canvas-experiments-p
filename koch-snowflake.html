@@ -1,0 +1,247 @@
+<html>
+    <head>
+        <title>Koch Snowflake</title>
+        <style>
+            body {
+                background-color: black;
+                margin: 0;
+                padding: 0;
+            }
+            #main {
+                display: flex;
+                height: 100%;
+                justify-content: center;
+                align-items: center;
+            }
+            canvas {
+                max-height: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <section id="main">
+            <canvas id="canvas" height="1280" width="1280"></canvas>
+        </section>
+    </body>
+    <script>
+    const DEBUG = false;
+    const DRAW_POINTS = false;
+    const DRAW_BASE = false;
+
+    class Segment {
+        constructor(p1, p2) {
+            this.start = p1;
+            this.end = p2;
+            // Is this the base segment of the triangle? By default no, since
+            // it's a property that will be determined later once we start removing
+            // bases and forming new triangles.
+            this.base = false;
+
+            const [x1, y1] = p1;
+            const [x2, y2] = p2;
+            this.vector = this.toVector();
+            // I.e. the length of the segment.
+            this.magnitude = this.getMagnitude();
+            this.normalized = this.toNormalizedVector();
+            this.midpoint = [
+                (x2 + x1) * 0.5,
+                (y2 + y1) * 0.5,
+            ];
+        }
+
+        toVector() {
+            const v = [
+                this.start[0] - this.end[0],
+                this.start[1] - this.end[1],
+            ];
+            return v;
+        }
+
+        getMagnitude() {
+            const { vector: v } = this;
+            const m = Math.sqrt(v[0] * v[0] + v[1] * v[1]);
+            return m;
+        }
+
+        toNormalizedVector() {
+            // Magnitude (i.e. length) + normalize.
+            const { magnitude: m, vector: v } = this;
+            const n = [v[0] / m, v[1] / m];
+            return n;
+        }
+
+        subdivide(centre) {
+            // 1. divide the line segment into three segments of equal length.
+            const { magnitude, normalized } = this;
+
+            // 3 new segments. Use start and subtract because we're going clockwise.
+            const third = [
+                this.start[0] - 1/3 * magnitude * normalized[0],
+                this.start[1] - 1/3 * magnitude * normalized[1],
+            ];
+            const twoThirds = [
+                this.start[0] - 2/3 * magnitude * normalized[0],
+                this.start[1] - 2/3 * magnitude * normalized[1],
+            ];
+
+            const base = new Segment(third, twoThirds);
+            // 3. remove the line segment that is the base of the triangle from step 2.
+            base.base = true;
+
+            const nextSegments = [
+                new Segment(this.start, third),
+                // This is the middle segment that's going to be deleted...
+                base,
+                // The two new segments that will be added.
+                ...this.addNewEdges(base),
+                new Segment(twoThirds, this.end),
+            ];
+            if (this.base) {
+                nextSegments.forEach(s => s.base = true);
+            }
+            return nextSegments;
+        }
+
+        addNewEdges(base) {
+            // 2. draw an equilateral triangle that has the middle segment from step 1 as its base and points outward.
+            const { midpoint, start, end, magnitude } = base;
+            const { normalized } = this;
+
+            // Create a vector from the removed edge (i.e. the base). Then rotate it to create a vector
+            // pointing away from the base. The tip of the new triangle is somewhere along this outward
+            // pointing vector. Do this to the normalized vector so we can walk along it some length.
+            const r = Math.PI/2;
+            const rotatedVector = [
+                Math.cos(r) * normalized[0] - Math.sin(r) * normalized[1],
+                Math.sin(r) * normalized[0] + Math.cos(r) * normalized[1],
+            ];
+
+            // It's equilateral, so the vector through the centre is pretty much turning it
+            // into a 30-60-90 triangle which explains the Math.sqrt(3) / 2 ratio for the height.
+            const endpoint = [
+                midpoint[0] + magnitude * (Math.sqrt(3)/2)  * rotatedVector[0],
+                midpoint[1] + magnitude * (Math.sqrt(3)/2)  * rotatedVector[1],
+            ];
+
+            // Order matters, since we rely on a clockwise orientation to correctly rotate the
+            // vector derived from the segment, such that the rotation ends up with an outward-pointing
+            // vector.
+            const nextEdges = [
+                new Segment(
+                    start,
+                    endpoint,
+                ),
+                new Segment(
+                    endpoint,
+                    end,
+                ),
+            ];
+            if (DEBUG) {
+                const debugSegment = new Segment(midpoint, endpoint);
+                debugSegment.debug = true;
+                nextEdges.push(debugSegment);
+            }
+            return nextEdges;
+        }
+    }
+
+    class Snowflake {
+        constructor(subdivisions, dimensions) {
+            // Start with a triangle.
+            const { x, y, dimension } = dimensions;
+            const left = [x, y + dimension];
+            const right = [x + dimension, y + dimension];
+            // If we don't do this, it won't be equilateral.
+            const height = dimension * Math.sqrt(3) / 2;
+            const top =  [x + dimension * 0.5, y + dimension - height];
+            this.segments = [
+                // Clockwise by convention.
+                new Segment(top, right),
+                new Segment(right, left),
+                new Segment(left, top),
+            ];
+            for (let i = 0; i < subdivisions; i++) {
+                this.subdivide();
+            }
+        }
+
+        subdivide() {
+            this.segments = this.segments.reduce((acc, s) => ([...acc, ...s.subdivide()]), []);
+        }
+    }
+
+    class Viz {
+        constructor(snowflake) {
+            this.canvas = document.getElementById('canvas');
+            this.ctx = canvas.getContext('2d');
+            this.snowflake = snowflake;
+
+            this.clear();
+        }
+
+        clear() {
+            const { canvas, ctx } = this;
+            const { width, height } = canvas;
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        drawSnowflake() {
+            const { ctx } = this;
+            const { segments } = this.snowflake;
+            segments.forEach(s => {
+                if (s.base && !DRAW_BASE) {
+                    return;
+                }
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = 'blue';
+                if (s.debug) {
+                    ctx.strokeStyle = 'red';
+                }
+                ctx.beginPath();
+                ctx.moveTo(s.start[0], s.start[1]);
+                ctx.lineTo(s.end[0], s.end[1]);
+                ctx.stroke();
+            });
+
+            if (DRAW_POINTS) {
+                ctx.strokeStyle = 'red';
+                ctx.lineWidth = 2;
+                ctx.fillStyle = 'green';
+                segments.forEach(s => {
+                    if (s.base && !DRAW_BASE) {
+                        return;
+                    }
+                    ctx.beginPath();
+                    ctx.arc(s.start[0], s.start[1], 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.arc(s.end[0], s.end[1], 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                });
+            }
+        }
+
+        update() {
+            this.clear();
+            this.drawSnowflake();
+        }
+    }
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    const dimensions = {
+        x: canvas.width * 0.2,
+        y: canvas.height * 0.1,
+        dimension: canvas.width * 0.6,
+    };
+    const snowflake = new Snowflake(5, dimensions);
+    const viz = new Viz(snowflake);
+    viz.update();
+
+    </script>
+</html>

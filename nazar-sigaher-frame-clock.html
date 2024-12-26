@@ -1,0 +1,115 @@
+<html>
+    <head>
+        <style>
+            body {
+                background-color: black;
+                display: flex;
+                flex-flow: row;
+                align-items: center;
+                justify-content: center;
+                position: absolute;
+                top: 0;
+                right: 0;
+                left: 0;
+                bottom: 0;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas" height="1000px" width="1000px"></canvas>
+    </body>
+    <script>
+        // https://homeli.co.uk/frame-clock-by-nazar-sigaher/
+        function drawClockFace(rotation, backgroundColour, foregroundColour, thickness) {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            const { width: w, height: h } = canvas;
+
+            // dimensions of the clockface
+            const s = Math.sqrt(w ** 2 + h ** 2) * 0.5;
+            // needed to offset relative to centre (top-left coord system)
+            const hw = w * 0.5;
+            const hh = h * 0.5;
+            const hs = s * 0.5;
+            // there's a circular notch in the middle where a screw would go, make it related to
+            // the overall size.
+            const notchRadius = s * 0.07 * 0.5;
+            ctx.save();
+
+            // How to rotate per shape
+            ctx.translate(hw, hh);
+            ctx.rotate(rotation);
+            ctx.translate(-hw, -hh);
+
+            ctx.strokeStyle = foregroundColour;
+            ctx.lineWidth = thickness;
+            /* top half */
+            // top left curve
+            ctx.beginPath();
+            ctx.arc(hw - hs + notchRadius, hh - hs + notchRadius, notchRadius, -Math.PI, -Math.PI/2);
+            // top up to the notch curve
+            ctx.lineTo(hw - notchRadius * 3, hh - hs);
+            ctx.arc(hw - notchRadius * 2, hh - hs + notchRadius, notchRadius, -Math.PI/2, 0);
+            // line down and around the middle circle
+            ctx.lineTo(hw - notchRadius, hh);
+            // half of the middle circle
+            ctx.arc(hw, hh, notchRadius, Math.PI, 0, true);
+            // line back up to the top
+            ctx.lineTo(hw + notchRadius, hh - hs + notchRadius);
+            ctx.arc(hw + notchRadius * 2, hh - hs + notchRadius, notchRadius, -Math.PI, -Math.PI/2, 0);
+            // line to end of top
+            ctx.lineTo(hw + hs - notchRadius, hh - hs);
+            ctx.arc(hw + hs - notchRadius, hh - hs + notchRadius, notchRadius, -Math.PI/2, 0);
+            
+            /* bottom half with left and right edges */
+            ctx.lineTo(hw + hs, hh + hs - notchRadius);
+            // bottom right corner
+            ctx.arc(hw + hs - notchRadius, hh + hs - notchRadius, notchRadius, 0, Math.PI/2);
+            ctx.lineTo(hw - hs + notchRadius, hh + hs);
+            // bottom left corner
+            ctx.arc(hw - hs + notchRadius, hh + hs - notchRadius, notchRadius, Math.PI/2, -Math.PI);
+            // right edge
+            ctx.closePath();
+
+            ctx.stroke();
+
+            ctx.fillStyle = backgroundColour;
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        let start, previousTimeStamp;
+
+        function init(timestamp) {
+            if (start === undefined) {
+                start = timestamp;
+            }
+            const elapsed = timestamp - start;
+
+            const t = new Date();
+            const hours = t.getHours();
+            const minutes = t.getMinutes();
+            const seconds = t.getSeconds();
+            const pm = hours > 12;
+
+            const nHours = (pm ? hours - 12 : hours) / 12;
+            const nMinutes = minutes / 60;
+            const nSeconds = seconds / 60;
+            const rotation = Math.PI * 2;
+
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // hours
+            drawClockFace(rotation * nHours, 'transparent', 'white', 8)
+            // minutes
+            drawClockFace(rotation * nMinutes, 'transparent', 'red', 8)
+            // seconds
+            drawClockFace(rotation * nSeconds, 'transparent', 'blue', 8)
+            requestAnimationFrame(init);
+        }
+        requestAnimationFrame(init);
+    </script>
+</html>

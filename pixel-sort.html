@@ -1,0 +1,124 @@
+<html>
+    <head>
+        <style>
+            body {
+                background-color: black;
+            }
+            section {
+                display: flex;
+                flex-flow: row;
+                align-items: center;
+            }
+            input {
+                background-color: white;
+                padding: 8px;
+                position: absolute;
+                top: 0;
+                right: 0;
+            }
+        </style>
+    </head>
+    <body>
+        <input id="image-upload" type="file" accept="image/*"/>
+    </body>
+    <script>
+
+        const state = {
+            parent: null,
+            img: null,
+            pixelData: null,
+            indexedPixels: null,
+        };
+
+        // input: r,g,b in [0,1], out: h in [0,360) and s,v in [0,1]
+        function rgb2hsv(r, g, b) {
+            let v=Math.max(r,g,b), c=v-Math.min(r,g,b);
+            let h= c && ((v==r) ? (g-b)/c : ((v==g) ? 2+(b-r)/c : 4+(r-g)/c)); 
+            return [60*(h<0?h+6:h), v&&c/v, v];
+        }
+
+        function indexPixels(pixels) {
+            // need to index them by brightness before sorting, since we'll use brightness
+            // as the sort option.
+            let indexedPixels = [];
+            for (let i = 0; i < pixels.length; i += 4) {
+                const r = pixels[i];
+                const g = pixels[i + 1];
+                const b = pixels[i + 2];
+                const a = pixels[i + 3];
+                const [hue, saturation, brightness] = rgb2hsv(r / 0xff, g / 0xff, b / 0xff);
+                indexedPixels.push({ r, g, b, a, hue, saturation, brightness });
+            }
+            return indexedPixels;
+        }
+
+        function init(img) {
+            const parent = document.createElement('section');
+            document.body.appendChild(parent);
+            // cache various things to use for the rest of the flow.
+            state.parent = parent;
+            state.img = img;
+            state.pixelData = getImageData();
+            state.indexedPixels = indexPixels(state.pixelData.data);
+
+            ['hue', 'saturation', 'brightness'].forEach((criteria) => {
+                renderSorted(criteria, 'ascending');
+                // renderSorted(criteria, 'descending');
+            });
+        }
+
+        function getImageData() {
+            const { img } = state;
+            const imgCanvas = document.createElement('canvas');
+            imgCanvas.width = img.width;
+            imgCanvas.height = img.height;
+            state.parent.appendChild(imgCanvas);
+            imgCanvas.getContext('2d').drawImage(img, 0, 0);
+            const ctx = imgCanvas.getContext('2d')
+            return ctx.getImageData(0, 0, img.width, img.height);
+        }
+
+        function renderSorted(sortCriteria, direction = 'descending') {
+            // which key to use (rgb? hsv?) and which direction (ascending? descending?)
+            const sortedCanvas = document.createElement('canvas');
+            sortedCanvas.width = state.img.width;
+            sortedCanvas.height = state.img.height;
+            state.parent.appendChild(sortedCanvas);
+            const ctx = sortedCanvas.getContext('2d');
+            const sortedPixels = state.indexedPixels.sort(function(a, b) {
+                if (direction === 'descending') {
+                    return b[sortCriteria] - a[sortCriteria];
+                }
+                return a[sortCriteria] - b[sortCriteria];
+            });
+
+            // overwrite the pixels with the correct sorted orer.
+            sortedPixels.forEach(({ r, g, b, a }, i) => {
+                state.pixelData.data[i * 4] = r;
+                state.pixelData.data[i * 4 + 1] = g;
+                state.pixelData.data[i * 4 + 2] = b;
+                state.pixelData.data[i * 4 + 3] = a;
+            });
+            ctx.putImageData(state.pixelData, 0, 0)
+        }
+
+        const imageUpload = document.getElementById('image-upload');
+        imageUpload.onchange = (e) => {
+            const files = e.dataTransfer ? e.dataTransfer.files : e.target.files;
+            const [file] = files;
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const dataUri = event.target.result;
+                const img = document.createElement("img");
+                img.onload = () => init(img);
+                img.src = dataUri;
+            };
+
+            reader.onerror = function(event) {
+                console.error("File could not be read! Code " + event.target.error.code);
+            };
+
+            reader.readAsDataURL(file);
+        };
+    </script>
+</html>

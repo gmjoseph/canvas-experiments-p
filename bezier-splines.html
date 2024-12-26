@@ -1,0 +1,544 @@
+<html>
+    <head>
+        <title>B S P L I N E S</title>
+        <style>
+            body {
+                background-color: black;
+                margin: 0;
+                padding: 0;
+            }
+            #main {
+                display: flex;
+                height: 100%;
+                justify-content: center;
+                align-items: center;
+            }
+            canvas {
+                max-height: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <section id="main">
+            <canvas id="canvas" height="1280" width="1280"></canvas>
+        </section>
+    </body>
+    <script>
+    /*
+        https://pomax.github.io/bezierinfo/
+        https://www.particleincell.com/2012/bezier-splines/
+        https://www.particleincell.com/wp-content/uploads/2012/06/bezier-spline.js
+
+        "Following the steps outlined on codeproject.com, we want the first and
+        second derivatives to be continuous across the spline boundary. This will
+        give us two equations (one for each derivative) at each spline interface
+        which we use to find the control points."
+
+        first bezier curve is implemented in the bezier function
+        (bsplines-01-bezier.png)
+
+        ---
+    
+        the article then states that "at the left boundary of an 'i-th'
+        segment we can write: B′[i](0)=B′[i−1](1)".
+        (`[i]` and `[i-1]` are subscripts)
+
+        what this means is that the start of the next segment's derivative
+        B′[i](0), that is where the `t` input is 0, is equal to the end of
+        the previous segments derivative B′[i−1], that is where the `t` input
+        is 1.
+
+        in other words, if i is the index of the current segment we're
+        operating on, then the first point on the derivative is the
+        same as the last point on the derivative of the previous segment.
+        (bsplines-03-derivative-overlap.png)
+        in fact, if we look at that image, we can see that the plotted
+        derivative of each segment (green and blue) overlaps (since the
+        derivative is at 50% opacity of the bezier curve, and the combining
+        transparent graphs of the derivative overlap to make a new colour.
+        by default, a large portion of the derivative graph wouldn't
+        be visible on the canvas, so it has to be scaled back into the
+        canvas' coordinate system).
+
+        this is important because it will let us connect the end point of
+        the previous segment with the start point of the next segment
+        seamlessly and smoothly (both coloured in white and overlapping).
+
+        ---
+
+        TODO: REVISIT (not sure if it's aobut the second halves or just
+        the end points)
+        the article then rewrites the above equality of start and end
+        segment points by breaking it down into comparing component
+        points of each segment. in this case, the sum of points 0 and 1 of
+        the current segment i, is said to be equal to the sum of points 2
+        and 3 of the previous segment, i - 1:
+        -3P[0, i] + 3P[1, i] = −3P[2, i − 1] + 3P[3, i − 1]
+
+        instead of graphing it, i think it's simpler to compare the points
+        that are generated. otherwise, i think to make these overlap, we'd
+        need to graph the second segment's derivative in reverse. what
+        we should see is equality between the sum of p2, p3 where t = [0.5, 1]
+        for B[i - 1] (i.e. when we compute points the second half of the first segment)
+        and points p0, p1 where t = [0, 0.5] for B[i] (i.e. when we compute points
+        for the first half of the second segment). using very few subdivisions,
+        6 in this case:
+
+        b(i - 1)'s points p2 and p3:
+        // subdiv 4/6:
+        //     p2p3x 0
+        //     p2p3y -1536
+        // subdiv 5/6:
+        //     p2p3x 0
+        //     p2p3y -1536
+        subdiv 6/6:
+            p2p3x 0
+            p2p3y -1536
+
+        compare to b(i)'s points p0 and p1:
+        // subdiv 4/6:
+        //     p0p1x 0
+        //     p0p1y -1536
+        // subdiv 5/6:
+        //     p0p1x 0
+        //     p0p1y -1536
+        subdiv 6/6:
+            p0p1x 0
+            p0p1y -1536
+
+        this totally checks out.
+
+        ---
+
+        equation (1):
+
+        building off of 
+        -3P[0, i] + 3P[1, i] = −3P[2, i − 1] + 3P[3, i − 1],
+        
+        the next step is to define K by recognizing that
+        each piece of the left hand side is can equal another piece on the
+        right hand side:
+
+        P[0, i] = P[3, i − 1] = Ki,
+        that means that these variables are always equivalent and we
+        can say they're Ki, where Ki is the 'i-th' knot point, and a knot
+        is an endpoint.
+
+        we can then simplify the initial expression by using Ki:
+        -3Ki + 3P[1, i] = -3P[2, i - 1] + 3Ki
+        3P[1, i] = -3P[2, i - 1] + 6Ki
+        3P[1, i] + 3P[2, i - 1] = 6Ki
+        P[1, i] + P[2, i - 1] = 2Ki
+
+        so now we have part of an equation to determine the control points
+        for a start and end point
+        P[1, i] + P[2, i - 1] = 2Ki
+
+        ---
+
+        TODO: REVISIT
+
+        calculate the second derivative
+        (no screenshot because it looks jacked?!)
+
+        ---
+
+        TODO: REVISIT
+
+        we do the same exercise on the second derivative as we did
+        on the first except with some additional data?
+
+        6P[0, i] - 12P[1, i] + 6P[2, i] = 
+            6P[1, i - 1] - 12P[2, i - 1] + 6P[3, i - 1]
+            
+        This too is simplified, acknowledging the shared knot
+        point, we get equation (2):
+        -2P[1, i] + P[2, i] = P[1, i - 1] - 2P[2, i - 1]
+
+        ---
+
+        equations (1) and (2) only work for internal knots which
+        are the places spline segments come together. that means
+        we can't use it for the first or very last knot because
+        no spline segments come together at those points.
+
+        that means to get all the internal knots, there are (2n - 1)
+        of them to compute, for 2n unknowns. for example, if
+        n is 4 then ther are 8 unknowns in total, but only 6 (2 * [4 - 1])
+        need to be computed because 2 out of those 8 are for the beginning
+        and end.
+
+        ---
+
+        TODO: REVISIT
+
+        we now need to deal with the end points of the b spline,
+        so for those we just make their second derivative linear
+        (since a second derivative == 0 means ... ?)
+        
+        this is done by setting 
+    */
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const { width, height } = canvas;
+
+    const DEFAULT_CONTEXT = {
+        lineWidth: 3,
+        strokeColour: 'white',
+        subdivisions: 400,
+        cartesian: false,
+    };
+
+    // How far a mouseclick can be from a canvas point before we
+    // register that point as "selected".
+    const MINIMUM_CLICK_DISTANCE = 10;
+
+    function createContext(params) {
+        return { ...DEFAULT_CONTEXT, ...params };
+    }
+
+    function setup() {
+        // TODO
+        // Find a way to preserve the context so we only need to redraw
+        // the splines over it.
+
+        ctx.clearRect(0, 0, width, height);
+
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, width, height);
+
+        ctx.strokeStyle = 'rgb(128, 128, 128)';
+        ctx.lineWidth = 1;
+
+        // Draw grid horizontals
+        const verticalSteps = height / 20;
+        for (let i = 0; i <= height; i += verticalSteps) {
+            ctx.beginPath();
+            ctx.moveTo(0, i);
+            ctx.lineTo(width, i);
+            ctx.stroke();
+        }
+
+        // Draw grid vertical lines, divided by the number of cycles.
+        const horizontalSteps = width / 20;
+        for (let i = 0; i <= width; i += horizontalSteps) {
+            ctx.beginPath();
+            ctx.moveTo(i, 0);
+            ctx.lineTo(i, height);
+            ctx.stroke();
+        }
+    }
+
+    function bezier(points, t) {
+        const [p0, p1, p2, p3] = points;
+        // Point 0 coefficient and so on.
+        const p0c = (1 - t) ** 3;
+        const p1c = 3 * (1 - t) ** 2 * t;
+        const p2c = 3 * (1 - t) * t ** 2;
+        const p3c = t ** 3;
+
+        const x = p0.x * p0c + p1.x * p1c + p2.x * p2c + p3.x * p3c;
+        const y = p0.y * p0c + p1.y * p1c + p2.y * p2c + p3.y * p3c;
+
+        return { x, y };
+    }
+
+    function drawPoints(points, context = DEFAULT_CONTEXT) {
+        const {
+            lineWidth,
+            strokeColour,
+            subdivisions,
+        } = context;
+
+        const steps = 1/subdivisions;
+        // Draw the main points.
+        let started = false;
+        for (let i = 0; i <= 1; i += steps) {
+            const point = bezier(points, i);
+            const { x, y } = point;
+            if (!started) {
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                started = true;
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+        const { r, g, b, o } = strokeColour;
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${o})`;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+
+        // Display the control points.
+        points.forEach((p, i) => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 12, 0, 2 * Math.PI);
+            if (i == 0 || i == 3) {
+                // Points
+                ctx.fillStyle = 'white';
+                ctx.fill();
+            } else {
+                // Control handles
+                ctx.fillStyle = 'red';
+            }
+            // ctx.fill();
+        });
+    }
+
+    /*computes spline control points*/
+    function splineToSegments(points) {	
+        // Accepts the points of the spline (so multiple bezier segments)
+        // and then turns them into cubic bezier curves with 2 points (
+        // p0, p3 - start and end points) and 2 control handles (p1 for
+        // p0 and p2 for p3 by using the current segment and the next
+        // segment to establish this stuff.
+
+        // Get all the x and y values from all the points.
+        // We'll then iterate over x[i] and x[i + 1] at the
+        // same time to help generate the handle for the shared point
+        // between the current segment and the next segment.
+        const x = points.map(p => p.x);
+        const y = points.map(p => p.y);
+        
+        // Gets p1 and p2 by axis. px will have a p1 and a p2 which
+        // we then access below. The same applies to py.
+        const px = computeControlPoints(x);
+        const py = computeControlPoints(y);
+        
+        // Take all the data that was generated and create bezier spline
+        // segments of two points and two control points.
+        const bezierCurve = [];        
+        for (let i = 0; i < points.length - 1; i++) {
+            const p0 = { x: x[i], y: y[i] };
+            const p1 = { x: px.p1[i], y: py.p1[i] };
+            const p2 = { x: px.p2[i], y: py.p2[i] };
+            const p3 = { x: x[i + 1], y: y[i + 1] };
+            bezierCurve.push([p0, p1, p2, p3]);
+        }
+
+        return bezierCurve;
+    }
+
+    /*computes control points given knots K, this is the brain of the operation*/
+    function computeControlPoints(K)
+    {
+        const p1 = new Array();
+        const p2 = new Array();
+        const n =  K.length - 1;
+        
+        /*rhs vector*/
+        const a = new Array();
+        const b = new Array();
+        const c = new Array();
+        const r = new Array();
+        
+        /*left most segment*/
+        a[0] = 0;
+        b[0] = 2;
+        c[0] = 1;
+        r[0] = K[0] + 2 * K[1];
+        
+        /*internal segments*/
+        for (i = 1; i < n - 1; i++)
+        {
+            a[i] = 1;
+            b[i] = 4;
+            c[i] = 1;
+            r[i] = 4 * K[i] + 2 * K[i + 1];
+        }
+                
+        /*right segment*/
+        a[n - 1] = 2;
+        b[n - 1] = 7;
+        c[n - 1] = 0;
+        r[n - 1] = 8 * K[n - 1] + K[n];
+        
+        /*solves Ax=b with the Thomas algorithm (from Wikipedia)*/
+        for (i = 1; i < n; i++)
+        {
+            m = a[i] / b[i - 1];
+            b[i] = b[i] - m * c[i - 1];
+            r[i] = r[i] - m * r[i - 1];
+        }
+    
+        p1[n - 1] = r[n - 1] / b[n - 1];
+        for (i = n - 2; i >= 0; --i)
+            p1[i] = (r[i] - c[i] * p1[i + 1]) / b[i];
+            
+        /*we have p1, now compute p2*/
+        for (i = 0; i < n - 1;i++)
+            p2[i] = 2 * K[i + 1] - p1[i + 1];
+        
+        p2[n - 1] = 0.5 * (K[n] + p1[n - 1]);
+        
+        // this is just a bunch of x or y values for the p1s and p2s across the
+        // entire spline. not just for one segment. that should be doable
+        // though.
+        return { p1, p2 };
+    }
+
+    function draw(splines) {
+        splines.forEach(s => {
+            if (s.points.length < 2) {
+                throw new Error("Expected at least two points on the spline.");
+            }
+            const pointsWithControls = splineToSegments(s.points);
+            pointsWithControls.forEach(p => drawPoints(p, s.context));
+        });
+    }
+
+    function getSplines() {
+        const x = () => width * Math.random();
+        const y = () => height * Math.random();
+        const rgb = (max) => Math.floor(Math.random() * Math.floor(256));
+        const randomStrokeColour = (minimumOpacity = 0) => ({
+            r: rgb(),
+            g: rgb(),
+            b: rgb(),
+            o: Math.random() * (1.0 - minimumOpacity) + minimumOpacity,
+        });
+
+        const getRandomSpline = (pointCount, minimumOpacity) => (
+            {
+                points: new Array(pointCount).fill(0).map(() => ({ x: x(), y: y() })),
+                context: createContext({
+                    strokeColour: randomStrokeColour(minimumOpacity),
+                }),
+            }
+        );
+
+        const splines = [
+            {
+                points: [
+                    { x: width * 0.1, y: height * 0.6 },
+                    { x: width * 0.2, y: height * 0.8 },
+                    { x: width * 0.3, y: height * 0.6 },
+                    { x: width * 0.4, y: height * 0.8 },
+                    { x: width * 0.5, y: height * 0.6 },
+                    { x: width * 0.6, y: height * 0.8 },
+                    { x: width * 0.7, y: height * 0.6 },
+                    { x: width * 0.8, y: height * 0.8 },
+                    { x: width * 0.9, y: height * 0.6 },
+                ],
+                context: createContext({
+                    strokeColour: {
+                        r: 0,
+                        g: 255,
+                        b: 0,
+                        o: 1,
+                    }
+                }),
+            },
+            {
+                points: [
+                    { x: width * 0.1, y: height * 0.4 },
+                    { x: width * 0.2, y: height * 0.2 },
+                    { x: width * 0.3, y: height * 0.4 },
+                    { x: width * 0.4, y: height * 0.2 },
+                    { x: width * 0.5, y: height * 0.4 },
+                    { x: width * 0.6, y: height * 0.2 },
+                    { x: width * 0.7, y: height * 0.4 },
+                    { x: width * 0.8, y: height * 0.2 },
+                    { x: width * 0.9, y: height * 0.4 },
+                ],
+                context: createContext({
+                    strokeColour: {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        o: 0.8,
+                    }
+                }),
+            },
+            // getRandomSpline(4, 0.75),
+            // getRandomSpline(2, 0.75),
+            // getRandomSpline(20, 0.75),
+        ];
+        return splines;
+    }
+
+    function eventCoordsToLocal(e) {
+        // Transform into the canvas' coordinate space.
+        const viewportX = e.clientX;
+        const viewportY = e.clientY;
+        const boxRectangle = e.target.getBoundingClientRect();
+        const x = viewportX - boxRectangle.left;
+        const y = viewportY - boxRectangle.top;
+
+        return { x, y };
+    }
+
+    function main() {
+        const splines = getSplines();
+        setup();
+        draw(splines);
+
+        let nearestSplineIndex = null;
+        let nearestPointIndex = null;
+
+        canvas.addEventListener('click', e => {
+            if (nearestSplineIndex !== null && nearestPointIndex !== null) {
+                // Deselect if we click a second time after selecting something.
+                nearestSplineIndex = nearestPointIndex = null;
+                return;
+            }
+            const eventPoint = eventCoordsToLocal(e);
+
+            // Find nearest point by finding the point that's closest and its spline
+            // so we can reindex back into the reference and mutate it instead of
+            // copying it.
+            // In future this should just generate from some kind of data that copies
+            // the splines and then redraws on move.
+            const getDistance = (p0, p1) => Math.sqrt(
+                (p1.x - p0.x) * (p1.x - p0.x) + (p1.y - p0.y) * (p1.y - p0.y)
+            );
+            splines.forEach((s, splineIndex) => {
+                s.points.forEach((p, pointIndex) => {                   
+                    const d0 = getDistance(eventPoint, p);
+
+                    const closeEnough = d0 < MINIMUM_CLICK_DISTANCE;
+                    if (!closeEnough) {
+                        return;
+                    }
+
+                    if (closeEnough &&
+                        nearestSplineIndex === null &&
+                        nearestPointIndex === null) {
+                        // Set for the first time, other iterations should compare
+                        // against whatever was set here in case something is closer
+                        // and within the closeEnough distance.
+                        nearestSplineIndex = splineIndex;
+                        nearestPointIndex = pointIndex;
+                        return;
+                    }
+
+                    // Compare against the existing point too if we have one that happened
+                    // to already be closer.
+                    const nearestPoint = splines[nearestSplineIndex].points[nearestPointIndex];
+                    const d1 = getDistance(e, nearestPoint);
+                    if (d1 < d0) {
+                        nearestSplineIndex = splineIndex;
+                        nearestPointIndex = pointIndex;
+                    }
+                });
+            });
+        });
+
+        canvas.addEventListener('mousemove', e => {
+            if (nearestPointIndex === null && nearestPointIndex === null) {
+                return;
+            }
+
+            const { x, y } = eventCoordsToLocal(e);
+            splines[nearestSplineIndex].points[nearestPointIndex].x = x;
+            splines[nearestSplineIndex].points[nearestPointIndex].y = y;
+
+            setup();
+            draw(splines);
+        });
+    }
+
+    main();
+    </script>
+</html>

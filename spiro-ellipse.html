@@ -1,0 +1,155 @@
+<html>
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <title>S P I R O</title>
+        <style>
+            body {
+                background-color: black;
+                margin: 0;
+                padding: 0;
+            }
+            #main {
+                display: flex;
+                height: 100%;
+                justify-content: center;
+                align-items: center;
+            }
+            canvas {
+                max-height: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <section id="main">
+            <canvas id="canvas" height="1280" width="1280"></canvas>
+        </section>
+    </body>
+    <script>
+
+    const { cos, sin, PI } = Math;
+    const TWO_PI = PI * 2;
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const { width, height } = canvas;
+
+    function polarToCartesian(r, theta) {
+        return {
+            x: r * cos(theta),
+            y: r * sin(theta),
+        };
+    }
+
+    function cartesianToCanvas(x, y) {
+        // Trig functions give us cartesian coords, we need to convert them.
+        const SCALE = 1;
+        const nx = x * SCALE + width * 0.5;
+        const ny = y * SCALE + height * 0.5;
+        return { x: nx, y: ny };
+    }
+
+    function setup() {
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, width, height);
+
+        ctx.lineWidth = 2;
+
+        const circleCount = 10;
+        const radiusMultiplier = 55;
+        for (let i = 1; i <= circleCount; i++) {
+            ctx.beginPath();
+            ctx.arc(width * 0.5, height * 0.5, i * radiusMultiplier, 0, Math.PI * 2, false);
+            ctx.strokeStyle = 'gray';
+            ctx.stroke();
+        }
+
+        // Add 1 or more to circleCount to go beyond the outermost circle.
+        const radius = (circleCount) * radiusMultiplier;
+        const textRadius = (circleCount + 1) * radiusMultiplier;
+        const angles = [
+            '0', 'π/6', 'π/3',
+            'π/2', '2π/3', '5π/6',
+            'π', '7π/6', '4π/3',
+            '3π/2', '5π/3', '11π/6',
+        ];
+        for (let i = 0; i < angles.length; i++) {
+            const angle = Math.PI * 2 * (i / angles.length);
+            const { x: sx, y: sy } = polarToCartesian(radius, angle);
+            const { x, y } = cartesianToCanvas(sx, sy);
+
+            ctx.beginPath();
+            ctx.moveTo(width * 0.5, height * 0.5);
+            ctx.lineTo(x, y);
+            ctx.strokeStyle = 'gray';
+            ctx.stroke();
+        }
+        angles.forEach((angleString, i, arr) => {
+            const angle = Math.PI * 2 * (i / arr.length);
+            const { x: sx, y: sy } = polarToCartesian(textRadius, angle);
+            // Mirror over x axis by inverting sy.
+            const { x, y } = cartesianToCanvas(sx, -sy);
+
+            ctx.font = '36px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'gray',
+            ctx.fillText(angleString, x, y);
+        });
+    }
+
+    function draw() {
+        // Tweaking these three values will control the appearance of the graph.
+        const subdivisions = 32;
+        const ellipseWidth = width * 0.4;
+        const ellipseHeight = ellipseWidth * 0.05;
+        const increment = TWO_PI / subdivisions;
+
+        for (let theta = 0; theta < TWO_PI; theta += increment) {
+            ctx.beginPath();
+            ctx.ellipse(width * 0.5, height * 0.5, ellipseWidth, ellipseHeight, theta, 0, TWO_PI);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 5;
+            ctx.stroke();
+        }
+    }
+
+    function animatedDraw() {
+      
+        const next = (timestamp) => {
+            setup();
+            // Tweaking these three values will control the appearance of the graph.
+            const progress = timestamp / 10000;
+            // range [0.5, 1] instead of [-1, 1]
+            const easing = (sin(progress) - 1) * 0.25 + 1;
+            
+            // range [0.1, 1] instead of [-1, 1]
+            // const easing = (sin(progress) + 1) * 0.45 + 0.1;
+
+            // Mulitply by easing for interesting rotations as part of the drawing.
+            const subdivisions = easing * 32;
+            // const subdivisions = 32;
+            const ellipseWidth = easing * width * 0.4;
+            const ellipseHeight = easing * ellipseWidth * 0.6;
+            const increment = TWO_PI / subdivisions;
+
+            for (let theta = 0; theta < TWO_PI; theta += increment) {
+                ctx.beginPath();
+                ctx.ellipse(width * 0.5, height * 0.5, ellipseWidth, ellipseHeight, theta, 0, TWO_PI);
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 5;
+                ctx.stroke();
+            }
+            window.requestAnimationFrame(next);
+        };
+        window.requestAnimationFrame(next);
+    }
+
+    function main() {
+        setup();
+        // draw();
+        animatedDraw();
+    }
+
+    main();
+    </script>
+</html>

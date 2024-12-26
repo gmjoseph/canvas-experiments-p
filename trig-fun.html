@@ -1,0 +1,232 @@
+<html>
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <title>G R A P H</title>
+        <style>
+            body {
+                background-color: black;
+                margin: 0;
+                padding: 0;
+            }
+            #main {
+                display: flex;
+                height: 100%;
+                justify-content: center;
+                align-items: center;
+            }
+            canvas {
+                max-height: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <section id="main">
+            <canvas id="canvas" height="1280" width="1280"></canvas>
+        </section>
+    </body>
+    <script>
+
+    const DrawMode = {
+        STROKE: 0x1,
+        FILL: 0x2,
+    };
+
+    const DEFAULT_CONTEXT = {
+        // How many times to go around the full circle. Some of
+        // the polar graphs will require multiple cycles.
+        cycles: 1,
+        fillColour: 'white',
+        lineWidth: 3,
+        // Possible to bitwise OR these values together for
+        // multiple drawModes.
+        drawMode: DrawMode.STROKE,
+        radius: 150,
+        strokeColour: 'white',
+        subdivisions: 400,
+    };
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const { width, height } = canvas;
+
+    // Hacky, but it's annoying to type these over and over.
+    const { abs, cos, exp, sin, sqrt } = Math;
+
+    function createContext(params) {
+        return { ...DEFAULT_CONTEXT, ...params };
+    }
+
+    function cartesianToCanvas(x, y) {
+        // Trig functions give us cartesian coords, we need to convert them.
+        const nx = x + width * 0.5;
+        const ny = y + height * 0.5;
+        return { x: nx, y: ny };
+    }
+
+    function polarToCartesian(r, theta) {
+        return {
+            x: r * cos(theta),
+            y: r * sin(theta),
+        };
+    }
+
+    function setup() {
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, width, height);
+
+        const circleCount = 10;
+        const radiusMultiplier = 40;
+        for (let i = 1; i <= circleCount; i++) {
+            ctx.beginPath();
+            ctx.arc(width * 0.5, height * 0.5, i * radiusMultiplier, 0, Math.PI * 2, false);
+            ctx.strokeStyle = 'gray';
+            ctx.stroke();
+        }
+
+        // Add 1 or more to circleCount to go beyond the outermost circle.
+        const radius = (circleCount) * radiusMultiplier;
+        const textRadius = (circleCount + 1) * radiusMultiplier;
+        const angles = [
+            '0', 'π/6', 'π/3',
+            'π/2', '2π/3', '5π/6',
+            'π', '7π/6', '4π/3',
+            '3π/2', '5π/3', '11π/6',
+        ];
+        for (let i = 0; i < angles.length; i++) {
+            const angle = Math.PI * 2 * (i / angles.length);
+            const { x: sx, y: sy } = polarToCartesian(radius, angle);
+            const { x, y } = cartesianToCanvas(sx, sy);
+
+            ctx.beginPath();
+            ctx.moveTo(width * 0.5, height * 0.5);
+            ctx.lineTo(x, y);
+            ctx.strokeStyle = 'gray';
+            ctx.stroke();
+        }
+        angles.forEach((angleString, i, arr) => {
+            const angle = Math.PI * 2 * (i / arr.length);
+            const { x: sx, y: sy } = polarToCartesian(textRadius, angle);
+            const { x, y } = cartesianToCanvas(sx, sy);
+
+            ctx.font = '36px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'gray',
+            ctx.fillText(angleString, x, y);
+        });
+    }
+
+    function drawEquation(equation, context = DEFAULT_CONTEXT) {
+        const twoPi = Math.PI * 2;
+        const {
+            cycles,
+            fillColour,
+            drawMode,
+            lineWidth,
+            radius,
+            strokeColour,
+            subdivisions,
+        } = context;
+
+        let started = false;
+
+        for (let theta = 0; theta <= twoPi * cycles; theta += twoPi / subdivisions) {
+            const r = equation(theta);
+            // // Back to cartesian since that's what we need to draw lines.
+            const { x: sx, y: sy } = polarToCartesian(r, theta);
+            const { x, y } = cartesianToCanvas(sx * radius, sy * radius);
+            if (!started) {
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                started = true;
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+
+        if (drawMode & DrawMode.FILL) {
+            ctx.fillStyle = fillColour;
+            ctx.fill();
+        }
+
+        if (drawMode & DrawMode.STROKE) {
+            ctx.strokeStyle = strokeColour;
+            ctx.lineWidth = lineWidth;
+            ctx.stroke();
+        }
+    }
+
+    function generateExpression(e) {
+        const generator = Function(`return ${e}`)
+        return generator();
+    }
+
+    function draw() {
+        // `t` in all of these equations is the angle theta.
+        const contextualEquations = [
+            {
+                e: (t) => 2 + Math.cos(10 * t) + 2 * Math.sin(5 * t),
+                c: createContext({
+                    drawMode: DrawMode.FILL | DrawMode.STROKE,
+                    fillColour: 'rgba(255, 255, 255, 0.25)',
+                    radius: 105,
+                    strokeColour: 'pink',
+                })
+            },
+            // http://jwilson.coe.uga.edu/EMAT6680Spring16/Henderson/writeup11/writeup11.html
+            {
+                e: (t) => cos(sin(3 * t)),
+                // c: createContext(),
+            },
+            {
+                e: (t) => cos(cos(3 * t)),
+                // c: createContext({ strokeColour: 'blue' }),
+            },
+            {
+                e: (t) => (abs(cos(2 * t)) - abs(sin(3 * t))) ** 3 + cos(4 * t),
+                // c: createContext({ strokeColour: 'green' }),
+            },
+            {
+                // To draw a heart with this equation, we need to have
+                // more than one cycle. 10pi seems to work.
+                // Source was pinterest but the link is now a 404.
+                // It also required multiplying by -1 to invert it, otherwise
+                // it was upside down.
+                e: (t) => -1 * (3.5 - 1.5 * abs(cos(t)) * sqrt(1.3 + abs(sin(t))) + cos(2 * t) - 3 * sin(t) + 0.7 * cos(12.2 * t)),
+                c: createContext({
+                    cycles: 10,
+                    radius: 65,
+                    strokeColour: 'red',
+                }),
+            },
+            {
+                // https://en.wikipedia.org/wiki/Butterfly_curve_(transcendental)
+                // Multiply by -1 to invert.
+                e: (t) => -1 * (exp(sin(t)) - 2 * cos(4 * t) + sin((2 * t - Math.PI) / 24) ** 5),
+                c: createContext({
+                    // The range is 0 ≤ x ≤ 24π, but since a cycle is already
+                    // 2π, we only need to multiply by 12, and not 24.
+                    cycles: 12,
+                    radius: 65,
+                    strokeColour: 'blue',
+                }),
+            },
+            {
+                e: generateExpression('(t) => sin(t) * cos(t) ** 3'),
+                c: createContext({
+                    radius: 300,
+                    strokeColour: 'green',
+                }),
+            },
+        ];
+        contextualEquations.forEach(({ e, c }) => drawEquation(e, c));
+    }
+
+    function main() {
+        setup();
+        draw();
+    }
+
+    main();
+    </script>
+</html>

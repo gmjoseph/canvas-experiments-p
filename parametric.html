@@ -1,0 +1,159 @@
+<html>
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <title>P A R A M E T R I C</title>
+        <style>
+            body {
+                background-color: black;
+                margin: 0;
+                padding: 0;
+            }
+            #main {
+                display: flex;
+                height: 100%;
+                justify-content: center;
+                align-items: center;
+            }
+            canvas {
+                max-height: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <section id="main">
+            <canvas id="canvas" height="1280" width="1280"></canvas>
+        </section>
+    </body>
+    <script>
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const { width, height } = canvas;
+
+    // Hacky, but it's annoying to type these over and over.
+    const { abs, cos, sin, sqrt } = Math;
+
+    function cartesianToCanvas(x, y) {
+        // Trig functions give us cartesian coords, we need to convert them.
+        const nx = x + width * 0.5;
+        // Cartesian y is up, not down.
+        const ny = -y + height * 0.5;
+        return { x: nx, y: ny };
+    }
+
+    function polarToCartesian(r, theta) {
+        return {
+            x: r * cos(theta),
+            y: r * sin(theta),
+        };
+    }
+
+    function setup() {
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, width, height);
+
+        const circleCount = 10;
+        const radiusMultiplier = 40;
+        for (let i = 1; i <= circleCount; i++) {
+            ctx.beginPath();
+            ctx.arc(width * 0.5, height * 0.5, i * radiusMultiplier, 0, Math.PI * 2, false);
+            ctx.strokeStyle = 'gray';
+            ctx.stroke();
+        }
+
+        // Add 1 or more to circleCount to go beyond the outermost circle.
+        const radius = (circleCount) * radiusMultiplier;
+        const textRadius = (circleCount + 1) * radiusMultiplier;
+        const angles = [
+            '0', 'π/6', 'π/3',
+            'π/2', '2π/3', '5π/6',
+            'π', '7π/6', '4π/3',
+            '3π/2', '5π/3', '11π/6',
+        ];
+        for (let i = 0; i < angles.length; i++) {
+            const angle = Math.PI * 2 * (i / angles.length);
+            const { x: sx, y: sy } = polarToCartesian(radius, angle);
+            const { x, y } = cartesianToCanvas(sx, sy);
+
+            ctx.beginPath();
+            ctx.moveTo(width * 0.5, height * 0.5);
+            ctx.lineTo(x, y);
+            ctx.strokeStyle = 'gray';
+            ctx.stroke();
+        }
+        angles.forEach((angleString, i, arr) => {
+            const angle = Math.PI * 2 * (i / arr.length);
+            const { x: sx, y: sy } = polarToCartesian(textRadius, angle);
+            const { x, y } = cartesianToCanvas(sx, sy);
+
+            ctx.font = '36px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'gray',
+            ctx.fillText(angleString, x, y);
+        });
+    }
+
+    function draw(config) {
+        const { start, end, xf, yf, radius } = config;
+        const subdivisions = 250 * end;
+    
+        for (let t = start; t <= end; t += end / subdivisions) {
+            // // Back to cartesian since that's what we need to draw lines.
+            // const { x: sx, y: sy } = polarToCartesian(r, theta);
+            const sx = xf(t);
+            const sy = yf(t);
+            const { x, y } = cartesianToCanvas(sx * radius, sy * radius);
+            if (t === start) {
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+
+        ctx.strokeStyle = 'blue';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+    }
+
+    function main() {
+        const configs = {
+            swirlz: {
+                radius: 25,
+                xf: t => t + sin(5 * t),
+                yf: t => t + sin(6 * t),
+                start: -10,
+                end: 10,
+            },
+            lattice_un: {
+                radius: 200,
+                xf: t => sin(9 * t),
+                yf: t => sin(10 * t),
+                start: 0,
+                end: 8,
+            },
+            lattice_deux: {
+                radius: 200,
+                xf: t => sin(7 * Math.PI * t),
+                yf: t => cos(5 * Math.PI * t),
+                start: 0,
+                end: 4,
+            },
+            airplane: {
+                radius: 50,
+                xf: t => t - 3 * sin(t),
+                yf: t => 4 - 3 * cos(t),
+                start: 0,
+                end: 10,
+            },
+            // t - 3cos(t), 4 - 3 cos(t) is cool cursive-looking
+        }
+
+        setup();
+        draw(configs.lattice_un);
+    }
+
+    main();
+    </script>
+</html>

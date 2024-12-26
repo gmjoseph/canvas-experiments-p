@@ -1,0 +1,314 @@
+<html>
+    <head>
+        <title>2d ray trace</title>
+    </head>
+    <body>
+        <canvas id="ctx" width="500px" height="500px" style="border: 10px solid black"></canvas>
+    </body>
+    <script>
+        const DIMENSION = 500;
+        const CTX = document.getElementById("ctx").getContext("2d");
+        const CIRCLE_ENTITIES = [];
+        const BOX_ENTITIES = [];
+        const SEGMENT_ENTITIES = [];
+        let EMITTER = { x: DIMENSION * 0.5, y: DIMENSION * 0.5 };
+        let PATTERN_IMAGE = null;
+        // https://www.taylorpetrick.com/portfolio/webgl/lux
+        // TODO Implement in webgl
+    
+        function doesLineIntersectCircle(A, B, C, radius) {
+            // https://codereview.stackexchange.com/a/192500
+            var dist;
+            const v1x = B.x - A.x;
+            const v1y = B.y - A.y;
+            const v2x = C.x - A.x;
+            const v2y = C.y - A.y;
+            // get the unit distance along the line of the closest point to
+            // circle center
+            const u = (v2x * v1x + v2y * v1y) / (v1y * v1y + v1x * v1x);
+
+            // if the point is on the line segment get the distance squared
+            // from that point to the circle center
+            if(u >= 0 && u <= 1){
+                dist  = (A.x + v1x * u - C.x) ** 2 + (A.y + v1y * u - C.y) ** 2;
+            } else {
+                // if closest point not on the line segment
+                // use the unit distance to determine which end is closest
+                // and get dist square to circle
+                dist = u < 0 ?
+                    (A.x - C.x) ** 2 + (A.y - C.y) ** 2 :
+                    (B.x - C.x) ** 2 + (B.y - C.y) ** 2;
+            }
+            return dist < radius * radius;
+        }
+
+        function doesLineIntersectSegment(v1, v2) {
+            // http://stackoverflow.com/a/565282/786339
+            // https://github.com/pgkelley4/line-segments-intersect/blob/master/js/line-segments-intersect.js
+            const p = v1.s;
+            const p2 = v1.v;
+            const q = v2.s;
+            const q2 = v2.v;
+
+            function crossProduct(point1, point2) {
+                return point1.x * point2.y - point1.y * point2.x;
+            }
+
+            function subtractPoints(point1, point2) {
+                var result = {};
+                result.x = point1.x - point2.x;
+                result.y = point1.y - point2.y;
+
+                return result;
+            }
+
+            function equalPoints(point1, point2) {
+                return (point1.x == point2.x) && (point1.y == point2.y)
+            }
+
+            function allEqual(args) {
+                var firstValue = arguments[0],
+                    i;
+                for (i = 1; i < arguments.length; i += 1) {
+                    if (arguments[i] != firstValue) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            var r = subtractPoints(p2, p);
+            var s = subtractPoints(q2, q);
+
+            var uNumerator = crossProduct(subtractPoints(q, p), r);
+            var denominator = crossProduct(r, s);
+
+            if (uNumerator == 0 && denominator == 0) {
+                // They are coLlinear
+                
+                // Do they touch? (Are any of the points equal?)
+                if (equalPoints(p, q) || equalPoints(p, q2) || equalPoints(p2, q) || equalPoints(p2, q2)) {
+                    return true
+                }
+                // Do they overlap? (Are all the point differences in either direction the same sign)
+                return !allEqual(
+                        (q.x - p.x < 0),
+                        (q.x - p2.x < 0),
+                        (q2.x - p.x < 0),
+                        (q2.x - p2.x < 0)) ||
+                    !allEqual(
+                        (q.y - p.y < 0),
+                        (q.y - p2.y < 0),
+                        (q2.y - p.y < 0),
+                        (q2.y - p2.y < 0));
+            }
+
+            if (denominator == 0) {
+                // lines are paralell
+                return false;
+            }
+
+            var u = uNumerator / denominator;
+            var t = crossProduct(subtractPoints(q, p), s) / denominator;
+
+            return (t >= 0) && (t <= 1) && (u >= 0) && (u <= 1);
+        }
+
+        function doesLineIntersectSegmenets(vec, segments) {
+            for (let i = 0; i < segments.length; i++) {
+                const segment = segments[i];
+                if (doesLineIntersectSegment(vec, segment)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function doesLineIntersectBox(vec, entity) {
+            // https://www.redblobgames.com/articles/visibility/
+            // TODO use the techniques there to improve the speed here.
+            // Box is made up of four line segments, test each one
+            // and if it intesects with one then it intersects the
+            // box.
+            const { x, y, w, h } = entity;
+            const top = {
+                v: { x, y },
+                s: { x: x + w, y },
+            };
+            const left = {
+                v: { x, y },
+                s: { x, y: y + h },
+            };
+            const bottom = {
+                v: { x, y: y + h },
+                s: { x: x + w, y: y + h },
+            };
+            const right = {
+                v: { x: x + w, y },
+                s: { x: x + w, y:  y + h },
+            };
+            const segments = [top, left, bottom, right];
+
+            return doesLineIntersectSegmenets(vec, segments);
+        }
+    
+        function populateEntities() {
+
+            function slice(count) {
+                const slices = [];
+                const end = count + 1;
+                for (let i = 1; i < end; i++) {
+                    slices.push(DIMENSION * i / end);
+                }
+                return slices;
+            }
+
+            slice(3).forEach(x => {
+                slice(4).forEach(y => {
+                    CIRCLE_ENTITIES.push({ x, y, r: 16 });
+                });
+            });
+
+            // Slow...
+            // BOX_ENTITIES.push({ x: 50, y: 200, w: 5, h: 5 });
+            // BOX_ENTITIES.push({ x: 400, y: 187, w: 25, h: 25 });
+            // BOX_ENTITIES.push({ x: 190, y: 130, w: 10, h: 10 });
+            // BOX_ENTITIES.push({ x: 35, y: 490, w: 7, h: 7 });
+            // BOX_ENTITIES.push({ x: 190, y: 100, w: 15, h: 15 });
+
+            // Slow...
+            // const w = 32;
+            // SEGMENT_ENTITIES.push({
+            //     s: { x: w, y: w },
+            //     v: { x: DIMENSION - w, y: w },
+            // });
+            // SEGMENT_ENTITIES.push({
+            //     s: { x: w, y: DIMENSION - w },
+            //     v: { x: DIMENSION - w, y: DIMENSION - w },
+            // });
+            // SEGMENT_ENTITIES.push({
+            //     s: { x: w, y: w },
+            //     v: { x: w, y: DIMENSION - w },
+            // });
+            // SEGMENT_ENTITIES.push({
+            //     s: { x: DIMENSION - w, y: w },
+            //     v: { x: DIMENSION - w, y: DIMENSION - w },
+            // });
+        }
+
+        function indexForPixel(x, y) {
+            // Gets the image buffer index for the start of a pixel.
+            // Since each pixel can be made of 4 colours, these should
+            // be n % 4 == 0.
+            return (x + y * DIMENSION) * 4;
+        }
+
+        function setColourAtPixel(x, y, r, g, b, imageData) {
+            const idx = indexForPixel(x, y);
+            imageData.data[idx] = r;
+            imageData.data[idx + 1] = g;
+            imageData.data[idx + 2] = b;
+            // No alpha
+            imageData.data[idx + 3] = 255;
+        }
+
+        function multiplyColourAtPixel(x, y, rm, gm, bm, imageData) {
+            const idx = indexForPixel(x, y);
+            imageData.data[idx] *= rm;
+            imageData.data[idx + 1] *= gm;
+            imageData.data[idx + 2] *= bm;
+            // No alpha
+            imageData.data[idx + 3] = 255;
+        }
+    
+        function collides(vec) {
+            for (let i = 0; i < CIRCLE_ENTITIES.length; i++) {
+                const entity = CIRCLE_ENTITIES[i];
+                const { r } = entity;
+                const hit = doesLineIntersectCircle(vec.s, vec.v, entity, r);
+                if (hit) {
+                    return true;
+                }
+            }
+
+            for (let i = 0; i < BOX_ENTITIES.length; i++) {
+                const entity = BOX_ENTITIES[i];
+                const hit = doesLineIntersectBox(vec, entity);
+                if (hit) {
+                    return true;
+                }
+            }
+
+            for (let i = 0; i < SEGMENT_ENTITIES.length; i++) {
+                const entity = SEGMENT_ENTITIES[i];
+                const hit = doesLineIntersectSegment(vec, entity);
+                if (hit) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // function test() {
+        //     console.log(indexForPixel(500, 0));
+        //     console.log(indexForPixel(1, 1));
+        //     console.log(indexForPixel(499, 499));
+        // }
+
+        function trace() {
+            // Refresh the ctx
+            CTX.clearRect(0, 0, DIMENSION, DIMENSION);
+            drawPattern();
+            const imageData = CTX.getImageData(0, 0, DIMENSION, DIMENSION);
+   
+            // For each pixel, is it reachable from the position of
+            // the emitter?
+            const s = EMITTER;
+            for (let x = 0; x < DIMENSION; x++) {
+                for (let y = 0; y < DIMENSION; y++) {
+                    const v = { x, y };
+                    if (collides({ s, v })) {
+                        multiplyColourAtPixel(x, y, 0.4, 0.4, 0.4, imageData);
+                        // setColourAtPixel(x, y, 75, 0, 0, imageData);
+                    } else {
+                        // setColourAtPixel(x, y, 255, 0, 0, imageData);
+                    }
+                }
+            }
+            CTX.putImageData(imageData, 0, 0);
+        }
+
+        function drawPattern() {
+            if (!PATTERN_IMAGE) {
+                PATTERN_IMAGE = new Image();
+                PATTERN_IMAGE.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZAAAAGQBAMAAABykSv/AAAAJFBMVEX////29vb19fX9/f35+fn8/Pz4+Pj7+/v39/f+/v76+vr09PSoFy00AAAEgElEQVR4Xu3dsW9bVRTH8RvaAm9rkoKeMtUpDG2Xpi9J1Q1IbClhKSSWSVlAicyDCakybj3hgVc7k4UT8B0TpXXksSr/H6N/N8NTl17Vx9+7/XSvdPSxIj/p+ORd93hxupa+GpxLvDNckPR5clqRo08e/CybN/1DSfeuXa9I9DFqON+bru6OP5O47EeSCn+aytEDn8tmf7gmacWfpBJ9jBoudbK+X/pd0seLNyVdq3yhR79ZeiBpYfEnSZ9UvtSj3Rg13gkCBAgQIECAAAECBAgQIECAAAECpKLxx/sBZPW2Qt68Vci39xXy0WoAefOfQpZi1HC7dVl/1FqSnm5XJTWOftOjr4Oj+9uvgqO/6NGLGDXcIGhnunOJd5MFSam7EbQzB11tZyZ/S7qXBO3MKDXM9H7LPq07SQC5+mkFkORhyacVo4Ybt6erM5lMJI4n4eZYYqdzZbMjaTIJN2PUKPvW+jT4RkmufqMMgm+UP0u+UWLUmK8HIhAgQIAAAQIECBAgQIAAAQIECE3srDld+VZ2KfGvbFPSUbZRyNG9rCabhxs/SDrO1guJWYwaZnq/diD+/TeYBzFquMLL+q77QtI/vb6kYXpLj37dfSxp1PtV0r/pZ3o0j1Fjvp4jQIAAAQIECBAgQIAAAQIECBAgQI4yWc/zZ5LWm4eSNopjPXqZ70nabG5JelS81KO1GDWcKxkudmXDxa5kuNgFXcAoNaz2fkOIL4MMSiBJCIlRw9W3ZY0bF5Kq9X3dbLU1tRuaqg09utvq6GY9Ro25GmDmOQIECBAgQIAAAQIECBAgQIAAAWKmHWSmQWemZWqmiW3mZwUzP/TM1XMECBAgQIAAAQIECBAgQIAAAQIEiJl/zDfzqgQzvV8zEDMveJnFV+4wwAwECBAgQIAAAQIECBAgQIAAAcIAs5kr0sxcWmem92vmYkczV23OZBObJjYQIECAAAECBAgQIECAAAECBAgQ35uu7o4/k7jsR5IKf5rK0QOfy2Z/uCZpxZ+kEn2MGgwwf2gQM39aPEfmCgIECBAgQIAAAQIECBAgQIAAAWJmFNDMcKaZcVkzvV8zI+Vmhvy5RnAWH4hAgAABAgQIECBAgAABAgQIECA0sc28JpcB5g8NYubl3mZetz5fzxEgQIAAAQIECBAgQIAAAQIECBAgR5ms5/kzSevNQ0kbxbEevcz3JG02tyQ9Kl7q0VqMGs6VDBe7suFiVzJc7IIuYJQaVnu/IcSXQQYlkCSExKjh6tuyxo0LSdX6vm622praDU3Vhh7dbXV0sx6jBgPMs/gcAQIECBAgQIAAAQIECBAgQIAA4RpBMw06My1TM01sMz8rmPmhZ66eI0CAAAECBAgQIECAAAECBAgQIEDM/GO+mVclmOn9moGYecHLLL5yhwFmIECAAAECBAgQIECAAAECBAgQBpjNXJFm5tI6M71fMxc7mrlqcyab2DSxgQABAgQIECBAgAABAgQIECBAgPjedHV3/JnEZT+SVPjTVI4e+Fw2+8M1SSv+JJXoY9Qw0/v9HyBidiXJeJK4AAAAAElFTkSuQmCC';
+                PATTERN_IMAGE.onload = trace;
+                return;
+            }
+            const pattern = CTX.createPattern(PATTERN_IMAGE, 'repeat');
+            CTX.fillStyle = pattern;
+            CTX.fillRect(0, 0, DIMENSION, DIMENSION);
+        }
+
+        function setup() {
+            populateEntities();
+            const target = document.getElementById("ctx");
+            const handler = (e) => {
+                const rect = e.target.getBoundingClientRect();
+                const x = e.clientX - rect.left; //x position within the element.
+                const y = e.clientY - rect.top;  //y position within the element.
+                EMITTER = { x, y };
+                trace();
+            }
+            target.addEventListener("mousedown", handler);
+            target.addEventListener("mousemove", handler);
+        }
+
+        function main() {
+            setup();
+            trace();
+        }
+
+        window.onload = main;
+    </script>
+</html>

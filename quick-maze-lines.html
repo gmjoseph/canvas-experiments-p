@@ -1,0 +1,259 @@
+<html>
+    <head>
+        <title>quick maze lines</title>
+    </head>
+    <body>
+        <canvas id="maze" width="500px" height="500px" style="border: 10px solid black"></canvas>
+    </body>
+    <script>
+        const DIMENSION = 500;
+        // width / height of cells
+        // STEP of 1 leads to too much recursion but it looks cool.
+        const STEP = 10;
+        // i.e. cells per row / column
+        const CELLS_PER_DIMENSION = DIMENSION/STEP;
+        const CELLS = [];
+
+        const NORTH = 0x1;
+        const SOUTH = 0x2;
+        const EAST = 0x4;
+        const WEST = 0x8;
+
+        // https://stackoverflow.com/a/12646864
+        function shuffleArray(array) {
+            // return array;
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const temp = array[i];
+                array[i] = array[j];
+                array[j] = temp;
+            }
+        }
+
+        function populateCells() {
+            let idx = 0;
+            for (let x = 0; x < CELLS_PER_DIMENSION; x++) {
+                const column = [];
+                for(let y = 0; y < CELLS_PER_DIMENSION; y++) {
+                    idx++;
+                    column.push({
+                        x,
+                        y,
+                        idx,
+                        animated: false,
+                        visited: false,
+                        // all 4 walls up to start.
+                        walls: NORTH | SOUTH | EAST | WEST,
+                    });
+                }
+                CELLS.push(column);
+            }
+            console.log(CELLS);
+        }
+
+        function getNeighbours(cell, filterByWalls = false) {
+            // only go n/s/e/w.
+            // if we're filtering by existing walls, then we only
+            // want neighours that don't have a wall between them
+            // and the current cell.
+            
+            const { x, y, walls } = cell;
+            const north = [x , y - 1];
+            const south = [x, y + 1];
+            const east = [x - 1, y];
+            const west = [x + 1, y];
+            const candidateIndices = [];
+
+            if (filterByWalls) {
+                if (!(walls & NORTH)) {
+                    candidateIndices.push(north);
+                }
+                if (!(walls & SOUTH)) {
+                    candidateIndices.push(south);
+                }
+                if (!(walls & EAST)) {
+                    candidateIndices.push(east);
+                }
+                if (!(walls & WEST)) {
+                    candidateIndices.push(west);
+                }
+            } else {
+                candidateIndices.push(north);
+                candidateIndices.push(south);
+                candidateIndices.push(east);
+                candidateIndices.push(west);
+            }
+
+            const neighbours = candidateIndices.filter(c => {
+                const [x, y] = c;
+                const xOutOfBounds = x < 0 || x >= CELLS_PER_DIMENSION;
+                const yOutOfBounds = y < 0 || y >= CELLS_PER_DIMENSION;
+                return !(xOutOfBounds || yOutOfBounds);
+            }).map(([x, y]) => (CELLS[x][y]));
+
+            shuffleArray(neighbours);
+            return neighbours;
+        }
+
+        function drawCell(cell, colour = 'black') {
+            const c = document.getElementById("maze");
+            const ctx = c.getContext("2d");
+            ctx.strokeStyle = colour;
+            if (!cell.walls) {
+                return;
+            }
+            
+            const tx = cell.x * STEP;
+            const ty = cell.y * STEP;
+
+            if (cell.walls & NORTH) {
+                // north
+                ctx.beginPath();
+                ctx.moveTo(tx, ty);
+                ctx.lineTo(tx + STEP, ty);
+                ctx.stroke();
+            }
+            if (cell.walls & SOUTH) {
+                // south
+                ctx.beginPath();
+                ctx.moveTo(tx, ty + STEP);
+                ctx.lineTo(tx + STEP, ty + STEP);
+                ctx.stroke();
+            }
+            if (cell.walls & EAST) {
+                // east
+                ctx.beginPath();
+                ctx.moveTo(tx, ty);
+                ctx.lineTo(tx, ty + STEP);
+                ctx.stroke();
+            }
+            if (cell.walls & WEST) {
+                // and west
+                ctx.beginPath();
+                ctx.moveTo(tx + STEP, ty);
+                ctx.lineTo(tx + STEP, ty + STEP);
+                ctx.stroke();
+            }          
+        }
+
+        function fillCell(cell, colour = 'black') {
+            const c = document.getElementById("maze");
+            const ctx = c.getContext("2d");
+            ctx.fillStyle = colour;
+            ctx.beginPath();
+            ctx.rect(cell.x * STEP, cell.y * STEP, cell.x + STEP, cell.y + STEP);
+            ctx.fill();
+        }
+
+        function connectCells(cell, n, colour = 'red') {
+            const c = document.getElementById("maze");
+            const ctx = c.getContext("2d");
+            const ox = cell.x * STEP + STEP * 0.5;
+            const oy = cell.y * STEP + STEP * 0.5;
+            const dx = n.x * STEP + STEP * 0.5;
+            const dy = n.y * STEP + STEP * 0.5;
+
+            ctx.strokeStyle = colour;
+            ctx.lineWidth = STEP / 5;
+            ctx.beginPath();
+            ctx.moveTo(ox, oy);
+            ctx.lineTo(dx, dy);
+            ctx.stroke();
+        }
+
+        function removeWalls(cell, neighbour) {
+            // figure out which cell was between cell and neighbour,
+            // mark it as visited.
+            const dx = (neighbour.x - cell.x);
+            const dy = (neighbour.y - cell.y);
+            
+            // each cell gets its own four walls. that means if we're
+            // moving east from a cell, we need to take down the east
+            // wall of the current cell, and the west bordering wall
+            // of the cell being visited.
+            if (dy == -1) {
+                cell.walls ^= NORTH;
+                neighbour.walls ^= SOUTH;
+            }
+            if (dy == 1) {
+                cell.walls ^= SOUTH;
+                neighbour.walls ^= NORTH;
+            }
+            if (dx == -1) {
+                cell.walls ^= EAST;
+                neighbour.walls ^= WEST;
+            }
+            if (dx == 1) {
+                cell.walls ^= WEST;
+                neighbour.walls ^= EAST;
+            }
+        }
+
+        function visitNextCell(cell) {
+            cell.visited = true;      
+            const neighbours = getNeighbours(cell);
+
+            if (neighbours.length === 0) {
+                return;
+            }
+            neighbours.forEach(n => {
+                if (n.visited) {
+                    // neighbour may have been visited in which case
+                    // don't visit it again.
+                    return;
+                }
+                n.visited = true;
+                removeWalls(cell, n);
+                visitNextCell(n);
+            });
+        }
+
+        function getStartCell() {
+            return CELLS[0][0];
+        }
+
+        function getEndCell() {
+            const lastX = CELLS[0].length - 1;
+            const lastY = CELLS[0].length - 1;
+            return CELLS[lastX][lastY];
+        }
+
+        function drawMaze() {
+            CELLS.forEach(r => r.forEach(cell => drawCell(cell)));
+        }
+
+        function solve() {
+            const start = getStartCell();
+            const end = getEndCell();
+            let finished = false;
+
+            const nextCell = (cell) => {
+                cell.animated = true;
+                // fillCell(cell, 'red');
+                if (cell == end) {
+                    finished = true;
+                }
+                const neighbours = getNeighbours(cell, true);
+                neighbours.forEach(n => {
+                    if (!n.visited || n.animated || finished) {
+                        return;
+                    }
+                    setTimeout(() => {
+                        connectCells(cell, n);
+                        nextCell(n);
+                    }, 50);
+                })
+            };
+
+            nextCell(start);
+        }
+
+        populateCells();
+        // start at top right.
+        const cell = CELLS[0][0];
+        visitNextCell(cell);
+
+        drawMaze();
+        solve();
+    </script>
+</html>
